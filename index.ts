@@ -1,7 +1,7 @@
 // const express = require("express");
 import puppeteer from "puppeteer";
 
-// const app = express();
+const app = express();
 
 // const count_verified_followers = (username: string) => {
 //   const uniqueFollowers = new Set();
