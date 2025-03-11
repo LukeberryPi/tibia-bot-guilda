@@ -158,7 +158,7 @@ try {
   console.error("Error loading cached guild data:", error);
 }
 
-cron.schedule("0 */6 * * *", async () => {
+cron.schedule("0 13 * * *", async () => {
   console.log("Running scheduled guild data update...");
   await scrapeGuildData();
 });
