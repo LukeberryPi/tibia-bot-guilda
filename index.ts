@@ -11,12 +11,15 @@ puppeteer.use(StealthPlugin());
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const CACHE_FILE = path.join(
+const HISTORY_FILE = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   "guild_data.json"
 );
 
-let guildData = [];
+// Initialize history file if it doesn't exist
+if (!fs.existsSync(HISTORY_FILE)) {
+  fs.writeFileSync(HISTORY_FILE, JSON.stringify([]));
+}
 
 function parseGuildHTML(html) {
   const members = [];
@@ -118,25 +121,23 @@ async function scrapeGuildData() {
     const members = parseGuildHTML(content);
 
     if (members.length === 0) {
-      console.error(
-        "No members found in the parsed HTML. This might indicate a parsing issue."
-      );
+      console.error("No members found in the parsed HTML.");
       return false;
     }
 
-    guildData = members;
+    // Read existing data
+    const historicalData = JSON.parse(fs.readFileSync(HISTORY_FILE, "utf8"));
 
-    fs.writeFileSync(
-      CACHE_FILE,
-      JSON.stringify(
-        {
-          lastUpdated: new Date().toISOString(),
-          members: members,
-        },
-        null,
-        2
-      )
-    );
+    // Add new snapshot
+    const newSnapshot = {
+      lastUpdated: new Date().toISOString(),
+      members: members,
+    };
+
+    historicalData.push(newSnapshot);
+
+    // Save updated history
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify(historicalData, null, 2));
 
     console.log(`Scraping complete. Found ${members.length} guild members.`);
     return true;
@@ -148,29 +149,48 @@ async function scrapeGuildData() {
   }
 }
 
-try {
-  if (fs.existsSync(CACHE_FILE)) {
-    const cachedData = JSON.parse(fs.readFileSync(CACHE_FILE, "utf8"));
-    guildData = cachedData.members;
-    console.log(`Loaded ${guildData.length} guild members from cache.`);
-  }
-} catch (error) {
-  console.error("Error loading cached guild data:", error);
-}
-
 cron.schedule("0 13 * * *", async () => {
   console.log("Running scheduled guild data update...");
   await scrapeGuildData();
 });
 
 app.get("/api/guild", (req, res) => {
+  const historicalData = JSON.parse(fs.readFileSync(HISTORY_FILE, "utf8"));
+  const latestSnapshot = historicalData[historicalData.length - 1];
+
   res.json({
     guildName: "Resonance",
-    lastUpdated: fs.existsSync(CACHE_FILE)
-      ? JSON.parse(fs.readFileSync(CACHE_FILE, "utf8")).lastUpdated
-      : new Date().toISOString(),
-    totalMembers: guildData.length,
-    members: guildData,
+    lastUpdated: latestSnapshot.lastUpdated,
+    totalMembers: latestSnapshot.members.length,
+    members: latestSnapshot.members,
+  });
+});
+
+app.get("/api/get-player-level", (req, res) => {
+  const playerName = req.query.name;
+
+  if (!playerName) {
+    return res.status(400).json({ error: "Player name is required" });
+  }
+
+  const historicalData = JSON.parse(fs.readFileSync(HISTORY_FILE, "utf8"));
+  const latestSnapshot = historicalData[historicalData.length - 1];
+
+  const player = latestSnapshot.members.find(
+    (m) => m.name.toLowerCase() === playerName.toLowerCase()
+  );
+
+  if (!player) {
+    return res.status(404).json({
+      error: "Player not found",
+      fetchDate: latestSnapshot.lastUpdated,
+    });
+  }
+
+  res.json({
+    name: player.name,
+    level: player.level,
+    fetchDate: latestSnapshot.lastUpdated,
   });
 });
 
@@ -180,7 +200,6 @@ app.get("/api/refresh", async (req, res) => {
     res.json({
       status: "success",
       message: "Guild data updated successfully",
-      memberCount: guildData.length,
     });
   } else {
     res
@@ -191,12 +210,5 @@ app.get("/api/refresh", async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Guild data API server running on port ${PORT}`);
-
-  scrapeGuildData().then((success) => {
-    if (!success && guildData.length === 0) {
-      console.log(
-        "Initial scrape failed. API will serve empty data until next successful scrape."
-      );
-    }
-  });
+  scrapeGuildData();
 });
