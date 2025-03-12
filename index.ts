@@ -166,6 +166,30 @@ app.get("/api/guild", (req, res) => {
   });
 });
 
+app.get("/api/guild", (req, res) => {
+  try {
+    const historicalData = JSON.parse(fs.readFileSync(HISTORY_FILE, "utf8"));
+    if (!historicalData.length) {
+      return res.json({
+        guildName: "Resonance",
+        lastUpdated: null,
+        totalMembers: 0,
+        members: [],
+      });
+    }
+
+    const latestSnapshot = historicalData[historicalData.length - 1];
+    res.json({
+      guildName: "Resonance",
+      lastUpdated: latestSnapshot.lastUpdated,
+      totalMembers: latestSnapshot.members.length,
+      members: latestSnapshot.members,
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to retrieve guild data" });
+  }
+});
+
 app.get("/api/get-player-level", (req, res) => {
   const playerName = req.query.name;
 
@@ -173,42 +197,35 @@ app.get("/api/get-player-level", (req, res) => {
     return res.status(400).json({ error: "Player name is required" });
   }
 
-  const historicalData = JSON.parse(fs.readFileSync(HISTORY_FILE, "utf8"));
-  const latestSnapshot = historicalData[historicalData.length - 1];
+  try {
+    const historicalData = JSON.parse(fs.readFileSync(HISTORY_FILE, "utf8"));
 
-  const player = latestSnapshot.members.find(
-    (m) => m.name.toLowerCase() === playerName.toLowerCase()
-  );
+    if (!historicalData.length) {
+      return res.status(404).json({
+        error: "No guild data available yet",
+        fetchDate: null,
+      });
+    }
 
-  if (!player) {
-    return res.status(404).json({
-      error: "Player not found",
+    const latestSnapshot = historicalData[historicalData.length - 1];
+
+    const player = latestSnapshot.members.find(
+      (m) => m.name.toLowerCase() === playerName.toLowerCase()
+    );
+
+    if (!player) {
+      return res.status(404).json({
+        error: "Player not found",
+        fetchDate: latestSnapshot.lastUpdated,
+      });
+    }
+
+    res.json({
+      name: player.name,
+      level: player.level,
       fetchDate: latestSnapshot.lastUpdated,
     });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to retrieve player data" });
   }
-
-  res.json({
-    name: player.name,
-    level: player.level,
-    fetchDate: latestSnapshot.lastUpdated,
-  });
-});
-
-app.get("/api/refresh", async (req, res) => {
-  const success = await scrapeGuildData();
-  if (success) {
-    res.json({
-      status: "success",
-      message: "Guild data updated successfully",
-    });
-  } else {
-    res
-      .status(500)
-      .json({ status: "error", message: "Failed to update guild data" });
-  }
-});
-
-app.listen(PORT, () => {
-  console.log(`Guild data API server running on port ${PORT}`);
-  scrapeGuildData();
 });
